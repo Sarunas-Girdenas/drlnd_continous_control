@@ -10,23 +10,21 @@ import torch
 import torch.nn.functional as F
 import torch.optim as optim
 
-BUFFER_SIZE = int(1e5)  # replay buffer size
-BATCH_SIZE = 1024        # minibatch size 128
 GAMMA = 0.99            # discount factor
 TAU = 1e-3              # for soft update of target parameters
-LR_ACTOR = 1e-4         # learning rate of the actor 
-LR_CRITIC = 1e-4        # learning rate of the critic
-WEIGHT_DECAY = 0        # L2 weight decay
+LR_ACTOR = 1e-3         # learning rate of the actor 
+LR_CRITIC = 1e-3        # learning rate of the critic
+WEIGHT_DECAY = 0.0000     # L2 weight decay
+BATCH_SIZE = 128         # minibatch size
+BUFFER_SIZE = int(1e6)  # replay buffer size
 
 # Prioritized Replay Buffer parameters
-E = 0.001
+E = 0.01
 A = 0.6
 BETA = 0.4
 BETA_INCREMENT_PER_SAMPLING = 0.0001
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-
-torch.set_num_threads(12)
 
 """
 other good values for params:
@@ -42,6 +40,7 @@ def weighted_mse_loss(input_, target, weight):
     https://discuss.pytorch.org/t/how-to-implement-weighted-mean-square-error/2547"""
     return torch.mean(weight * (input_ - target) ** 2)
 
+
 def weighted_huber_loss(input_, target, weight):
     """Weighted Huber Loss, used https://pytorch.org/docs/stable/nn.html#torch.nn.SmoothL1Loss
     """
@@ -56,22 +55,6 @@ def weighted_huber_loss(input_, target, weight):
     loss = torch.where(cond, L2, L1)
     
     return torch.mean(loss)
-
-
-def weighted_huber_loss_expand(input_, target, weight):
-    """Weighted Huber Loss, used https://pytorch.org/docs/stable/nn.html#torch.nn.SmoothL1Loss
-    """
-    
-    huber_loss_delta = 1.0
-    
-    cond = weight * torch.abs(input_ - target) < huber_loss_delta
-    
-    L2 = 0.5 * weight * ((input_ - target)**2)
-    L1 = huber_loss_delta * weight *(torch.abs(input_ - target) - 0.5 * huber_loss_delta)
-    
-    loss = torch.where(cond, L2, L1)
-    
-    return loss.detach().numpy()
 
 class Agent():
     """Interacts with and learns from the environment."""
@@ -106,9 +89,7 @@ class Agent():
         self.memory = Memory(capacity=BUFFER_SIZE, e=E, a=A, beta=BETA, beta_increment_per_sampling=BETA_INCREMENT_PER_SAMPLING,
                             batch_size=BATCH_SIZE)
         
-        # make sure that the weights are the same
-        self.soft_update(self.critic_target, self.critic_local, 1)
-        self.soft_update(self.actor_target, self.actor_local, 1)  
+        return None
     
     def append_sample(self, state, action, reward, next_state, done):
         """Calculate Error and append the tuple to
@@ -139,6 +120,10 @@ class Agent():
         self.critic_local.train()
             
         critic_loss = torch.abs(Q_expected - Q_targets).detach().numpy()
+        
+        # clip loss
+        
+        critic_loss = min(1.0, critic_loss)
 
         # add to Memory
         self.memory.add(critic_loss, (state, action, reward, next_state, done))
@@ -152,6 +137,9 @@ class Agent():
         #self.memory.add(state, action, reward, next_state, done)
         self.append_sample(state, action, reward, next_state, done)
         
+        self.update()
+        
+        return None
     
     def update(self):
         """Train Agent
@@ -199,14 +187,17 @@ class Agent():
         # Compute critic loss
         Q_expected = self.critic_local(states, actions)
         #critic_loss = F.mse_loss(Q_expected, Q_targets)
-        critic_loss = weighted_huber_loss(Q_expected, Q_targets, is_weights)
+        critic_loss = weighted_mse_loss(Q_expected, Q_targets, is_weights)
         
         # update priority in memory
         errors = torch.abs(Q_expected - Q_targets).detach().numpy()
         
         for i in range(BATCH_SIZE):
             idx = idxs[i]
-            self.memory.update(idx, errors[i])
+            
+            # clip errors
+            
+            self.memory.update(idx, min(1.0, errors[i]))
         # end of updating priority in memory
         
         # Minimize the loss
@@ -298,6 +289,7 @@ class Memory:
         # min and max weights
         
         p_min = min(self.tree.tree) / self.tree.total()
+                        
         max_weight = (p_min * self.tree.n_entries) ** (-self.beta)
         # end
         
@@ -308,14 +300,17 @@ class Memory:
             s = random.uniform(a, b)
             (idx, p, data) = self.tree.get(s)
             
+            # reduce s if p == 0
+            if p == 0:
+                (idx, p, data) = self.tree.get(s * 0.9)
+            
             batch.append(data)
             idxs.append(idx)
             priorities.append(p)
         
         sampling_probabilities = priorities / self.tree.total()
         is_weight = np.power(self.tree.n_entries * np.asarray(sampling_probabilities), -self.beta)
-        
-        #is_weight = is_weight * np.asarray(priorities)
+        #is_weight = np.power(self.tree.n_entries * np.asarray(priorities), -self.beta)
         
         is_weight /= max_weight
         
