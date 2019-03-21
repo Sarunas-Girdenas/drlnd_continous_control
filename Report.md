@@ -7,15 +7,15 @@ For this purpose, I've used [this](https://github.com/udacity/deep-reinforcement
 In terms of Actor-Critic, I've tried a few configurations. For example, using [weight normalization](https://pytorch.org/docs/stable/_modules/torch/nn/utils/weight_norm.html) and [batch normalization](https://pytorch.org/docs/stable/_modules/torch/nn/modules/batchnorm.html). For this project batch normalization for the first layer only seemed to work best. Weight normalization did not improve learning therefore it was removed altogether from both networks. In terms of structure, both networks have 2 layers (128, 128). I've also tried different depth (deep Actor and Shallow Critic) but this did not improve the convergence as well.
 
 In terms of hyperparameters used, they are mostly taken from the existing implimentations and have the following values: </br>
-`
-BUFFER_SIZE = int(1e6)  # replay buffer size <br/>
-BATCH_SIZE = 128        # minibatch size <br/>
-GAMMA = 0.99            # discount factor <br/>
-TAU = 1e-3              # for soft update of target parameters <br/>
-LR_ACTOR = 2e-4         # learning rate of the actor <br/>
-LR_CRITIC = 2e-4        # learning rate of the critic <br/>
-WEIGHT_DECAY = 0        # L2 weight decay <br/>
-`
+
+`BUFFER_SIZE = int(1e6)  # replay buffer` size <br/>
+`BATCH_SIZE = 128        # minibatch size` <br/>
+`GAMMA = 0.99            # discount factor` <br/>
+`TAU = 1e-3              # for soft update of target parameters` <br/>
+`LR_ACTOR = 2e-4         # learning rate of the actor` <br/>
+`LR_CRITIC = 2e-4        # learning rate of the critic` <br/>
+`WEIGHT_DECAY = 0        # L2 weight decay` <br/>
+
 During the training I've also tried changing the batch size. Larger values, such as 1024 or 512 seemed not to perform too well (agent took a very long time to reach any score above 2) whereas size of 128 was a really good choice based on learning speed. Both Actor and Critic have the same learning rates, this seemed not to affect training too much. However, any `weight_decay` value larger than 0 seemed to be detrimental to learning process. One explanation for this could be the fact that having non-zero value reguralizes Critic network too much and as a result its not able to learn anyting meaningful. Another option would be to increase depth/width of the Critic network and then try having `weight_decay` larger than 0; this could potentialy improve learning of the Agent.
 
 I've also tried implementing Prioritised Experience Replay to improve learning but I was unable to find the right configuration for it to work. It either did not train at all (reward was fluctuating between 1-2 for more than  500 episodes) or it was crashing due to unsuccessful experience sampling. For completeness, I've included the file in the repository, it is called `ddpg_agent_per.py`.
